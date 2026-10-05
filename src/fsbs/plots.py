@@ -37,7 +37,7 @@ def style():
 
 def _save(fig, path: Path, note: str = "Simulated book · synthetic market data"):
     fig.text(0.995, 0.005, note, ha="right", va="bottom", fontsize=7.5, color=MUTED)
-    fig.savefig(path, bbox_inches="tight")
+    fig.savefig(path, bbox_inches="tight", metadata={"Software": None})
     plt.close(fig)
 
 

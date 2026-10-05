@@ -62,7 +62,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
         pillars.append({"tenor": q.tenor, "maturity": end.isoformat(), "t": mkt.sofr.t(end), "par_quote": q.rate,
                         "df": mkt.sofr.df(end), "zero_cc": mkt.sofr.zero_rate(end),
                         "repriced_par": mkt.sofr.par_ois_rate(q.tenor) if q.tenor != "ON" else mkt.sofr.term_rate(end)})
-    pd.DataFrame(pillars).to_csv(res / "curve_pillars.csv", index=False)
+    pd.DataFrame(pillars).to_csv(res / "curve_pillars.csv", index=False, lineterminator="\n")
     max_reprice_err = max(abs(p["repriced_par"] - p["par_quote"]) for p in pillars)
     grid = []
     for t in np.concatenate([np.linspace(0.02, 1, 25), np.linspace(1.1, 30, 120)]):
@@ -71,7 +71,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
         grid.append({"t": t, "zero": mkt.sofr.zero_rate(d), "fwd_3m": mkt.sofr.forward_rate(d, d3),
                      "ftp": mkt.funding.rate(d),
                      "ftp_zero": mkt.sofr.zero_rate(d) + mkt.funding.spread(t), "term_sofr": mkt.sofr.term_rate(d)})
-    pd.DataFrame(grid).to_csv(res / "curve_grid.csv", index=False)
+    pd.DataFrame(grid).to_csv(res / "curve_grid.csv", index=False, lineterminator="\n")
     repo_curve = []
     for key in ("UST", "IG_CORP", "EQ_SINGLE"):
         for tn in ("1W", "1M", "3M", "6M", "1Y", "2Y"):
@@ -83,13 +83,13 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
 
     # ------------------------------------------------------------------ 2. worked examples
     rx = repo_example(mkt)
-    pd.DataFrame(rx["rows"]).to_csv(res / "example_repo_lifecycle.csv", index=False)
+    pd.DataFrame(rx["rows"]).to_csv(res / "example_repo_lifecycle.csv", index=False, lineterminator="\n")
     plots.repo_lifecycle(rx["rows"], fig / "repo_lifecycle.png")
     ix = irs_example(mkt)
-    pd.DataFrame(ix["fixed_leg"] + ix["float_leg"]).to_csv(res / "example_irs_legs.csv", index=False)
+    pd.DataFrame(ix["fixed_leg"] + ix["float_leg"]).to_csv(res / "example_irs_legs.csv", index=False, lineterminator="\n")
     plots.irs_cashflows(ix, fig / "irs_cashflows.png")
     tx = trs_example(mkt)
-    pd.DataFrame(tx["rows"]).to_csv(res / "example_trs_resets.csv", index=False)
+    pd.DataFrame(tx["rows"]).to_csv(res / "example_trs_resets.csv", index=False, lineterminator="\n")
     plots.trs_lifecycle(tx, fig / "trs_lifecycle.png")
     log(f"[examples] 5Y par {ix['par_rate']:.4%}, DV01 fd {ix['dv01_fd']:,.0f} analytic {ix['dv01_analytic']:,.0f}")
 
@@ -108,8 +108,8 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
     for a in allocs.values():
         a.full_checks = check_limits(a.agg, ex + cd, [1.0] * len(ex) + list(a.x), lim)
     pd.DataFrame([_mrow(m, fill_naive=naive.x[i], fill_greedy_robs=gro.x[i], fill_optimizer=opt.x[i])
-                  for i, m in enumerate(cd)]).to_csv(res / "client_requests.csv", index=False)
-    pd.DataFrame([_mrow(m) for m in ex]).to_csv(res / "existing_book.csv", index=False)
+                  for i, m in enumerate(cd)]).to_csv(res / "client_requests.csv", index=False, lineterminator="\n")
+    pd.DataFrame([_mrow(m) for m in ex]).to_csv(res / "existing_book.csv", index=False, lineterminator="\n")
     alloc_rows = []
     for name, a in [("existing book only", None)] + list(allocs.items()):
         g = base_agg if a is None else a.agg
@@ -118,10 +118,10 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
                            "robs_bp": g["robs"] * 1e4, "netting_benefit": g["netting_benefit"],
                            "liquidity_usage": g["liquidity_usage"], "feasible": True if a is None else a.feasible,
                            "requests_filled": 0 if a is None else int(np.sum(a.x > 1e-6))})
-    pd.DataFrame(alloc_rows).to_csv(res / "allocation_comparison.csv", index=False)
+    pd.DataFrame(alloc_rows).to_csv(res / "allocation_comparison.csv", index=False, lineterminator="\n")
     shadow = {k: v for k, v in (opt.shadow or {}).items()}
     pd.DataFrame([{"constraint": k, "shadow_price_per_unit": v} for k, v in sorted(shadow.items())]).to_csv(
-        res / "optimizer_shadow_prices.csv", index=False)
+        res / "optimizer_shadow_prices.csv", index=False, lineterminator="\n")
     log(f"[optimizer] net income: naive {naive.net_income / 1e6:.2f}mm, greedy-RoBS {gro.net_income / 1e6:.2f}mm, "
         f"LP {opt.net_income / 1e6:.2f}mm")
 
@@ -133,11 +133,12 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
     agg = opt.agg
     limits_now = check_limits(agg, book_m, book_x, lim)
     pd.DataFrame([{"limit": c.name, "value": c.value, "limit_value": c.limit, "utilisation": c.utilisation(),
-                   "ok": c.ok} for c in limits_now]).to_csv(res / "limit_utilisation.csv", index=False)
+                   "ok": c.ok} for c in limits_now]).to_csv(res / "limit_utilisation.csv", index=False, lineterminator="\n")
 
     # ------------------------------------------------------------------ 5. exposures, collateral
     expo = book_exposures(book_pos, mkt)
-    pd.DataFrame([{"cpty": k, **v} for k, v in expo.items()]).to_csv(res / "counterparty_exposure.csv", index=False)
+    pd.DataFrame([{"cpty": k, **v} for k, v in expo.items()]).to_csv(
+        res / "counterparty_exposure.csv", index=False, lineterminator="\n")
     labels = {k: c.label for k, c in config.COUNTERPARTIES.items()}
     plots.counterparty_exposure(expo, labels, fig / "counterparty_exposure.png")
     coll = _collateral_summary(book_pos, mkt, book_m, book_x)
@@ -146,11 +147,11 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
     base_metrics_book = [analyze(p, mkt) for p in book_pos]
     stress_rows = [run_scenario(book_pos, mkt, sc, base_metrics_book) for sc in SCENARIOS]
     pd.DataFrame([{k: v for k, v in r.items() if k != "default_detail"} for r in stress_rows]).to_csv(
-        res / "stress.csv", index=False)
+        res / "stress.csv", index=False, lineterminator="\n")
     plots.stress_pnl(stress_rows, fig / "stress_pnl.png")
     cps_all = sorted({p.cpty for p in book_pos} | {p.hedge.cpty for p in book_pos if p.hedge is not None})
     dflt = [closeout_loss(book_pos, c, mkt, mkt) for c in cps_all]
-    pd.DataFrame(dflt).to_csv(res / "default_by_counterparty.csv", index=False)
+    pd.DataFrame(dflt).to_csv(res / "default_by_counterparty.csv", index=False, lineterminator="\n")
     plots.default_losses(dflt, labels, fig / "default_losses.png")
     hc_rows = []
     base_ni = aggregate(base_metrics_book)["net_income"]
@@ -159,7 +160,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
         g = aggregate([analyze(p, mh) for p in book_pos])
         hc_rows.append({"mult": mult, "liquidity_usage": g["liquidity_usage"], "unsecured_funding": g["unsecured_funding"],
                         "net_income": g["net_income"], "net_income_change": g["net_income"] - base_ni})
-    pd.DataFrame(hc_rows).to_csv(res / "haircut_stress.csv", index=False)
+    pd.DataFrame(hc_rows).to_csv(res / "haircut_stress.csv", index=False, lineterminator="\n")
     liq_cap = lim.hqla_pool - lim.min_liquidity_buffer
     plots.haircut_stress(hc_rows, liq_cap, fig / "haircut_stress.png")
     breach = next((r["mult"] for r in hc_rows if r["liquidity_usage"] > liq_cap), None)
@@ -173,7 +174,8 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
         krd[q.tenor] = sum(position_mtm(p, mb) for p in book_pos) - base_v
     par_dv01 = sum(position_mtm(p, mkt.with_quotes_bump(1.0)) for p in book_pos) - base_v
     irs_dv01 = sum(m.dv01 * w for m, w in zip(book_m, book_x) if m.product == "irs")
-    pd.DataFrame([{"tenor": k, "dv01": v} for k, v in krd.items()]).to_csv(res / "key_rate_dv01.csv", index=False)
+    pd.DataFrame([{"tenor": k, "dv01": v} for k, v in krd.items()]).to_csv(
+        res / "key_rate_dv01.csv", index=False, lineterminator="\n")
     plots.keyrate_dv01(krd, fig / "key_rate_dv01.png")
 
     # ------------------------------------------------------------------ 8. pre-trade gate
@@ -191,7 +193,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
                           "stress_loss": m.stress_loss, "cpty_ead_after": d.incremental["cpty_ead_after"],
                           "cpty_ead_limit": d.incremental["cpty_ead_limit"],
                           "failed_checks": "|".join(f.check for f in d.failures), "reason": d.reason})
-    pd.DataFrame(gate_rows).to_csv(res / "pretrade_gate.csv", index=False)
+    pd.DataFrame(gate_rows).to_csv(res / "pretrade_gate.csv", index=False, lineterminator="\n")
     n_acc = sum(d.accepted for d in decisions)
     log(f"[gate] {n_acc} accepted, {len(decisions) - n_acc} rejected")
 
@@ -207,7 +209,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
             a = greedy(ex, cd, meth, lL, ch)
             store.append({"bs_limit": L, "balance_sheet": a.agg["balance_sheet"], "net_income": a.net_income})
     pd.DataFrame([dict(f, greedy_net_income=g["net_income"], naive_net_income=n["net_income"])
-                  for f, g, n in zip(front, g_pts, n_pts)]).to_csv(res / "frontier.csv", index=False)
+                  for f, g, n in zip(front, g_pts, n_pts)]).to_csv(res / "frontier.csv", index=False, lineterminator="\n")
     plots.robs_frontier(front, g_pts, n_pts, {"balance_sheet": agg["balance_sheet"], "net_income": agg["net_income"]},
                         fig / "robs_frontier.png")
 
@@ -256,7 +258,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
         "curve_max_reprice_error": max_reprice_err,
         "n_existing": len(ex), "n_requests": len(cd), "n_filled": int(np.sum(opt.x > 1e-6)),
     }
-    (res / "headline.json").write_text(json.dumps(headline, indent=2, default=str) + "\n")
+    (res / "headline.json").write_text(json.dumps(headline, indent=2, default=str) + "\n", newline="\n")
     summary = {
         "headline": headline, "pillars": pillars, "repo_example": _ser_repo(rx), "irs_example": _ser_irs(ix),
         "trs_example": _ser_trs(tx), "allocations": alloc_rows, "stress": [
@@ -269,7 +271,7 @@ def run(root: Path = ROOT, render_docs: bool = True, verbose: bool = True) -> di
                    "greedy": float(gro.x[i]), "lp": float(opt.x[i])} for i, m in enumerate(cd)],
         "existing": [_mrow(m) for m in ex],
     }
-    (res / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    (res / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", newline="\n")
     if render_docs:
         from .report import render_all
         render_all(root, summary)
