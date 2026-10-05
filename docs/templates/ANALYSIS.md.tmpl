@@ -1,0 +1,81 @@
+# Analysis
+
+All figures come from one run of `python -m fsbs` on the **simulated** book at valuation date {{val_date}}, with synthetic market data. They show how the model behaves and what drives the decisions; they are not estimates of any real desk's economics.
+
+## 1. Curve
+
+The SOFR OIS curve is bootstrapped from 15 synthetic par quotes ({{sofr_quotes}}). Each pillar is solved so its own swap prices at par, given every earlier pillar.
+
+{{pillar_table}}
+
+Points worth noting:
+
+- **Exact re-pricing.** The largest re-pricing error is {{reprice_err}}, i.e. floating-point noise. The optional QuantLib test bootstraps the same quotes with `OISRateHelper` and `PiecewiseLogLinearDiscount` and agrees on discount factors to 2e-6 (the residual is calendar convention: QuantLib's SOFR helper and this library's weekends-only calendar can roll a date differently).
+- **Forward staircase.** Log-linear interpolation of discount factors means flat instantaneous forwards between pillars, so the forward curve is a staircase that jumps at each pillar (most visibly between 15Y and 30Y, where the inverted long end produces a lower forward). Smoother schemes (monotone convex, tension splines) are a deliberate non-goal: log-linear is local, so a bump to one quote only moves forwards next to it, which is what key-rate DV01 needs.
+- **Funding curve.** The desk's unsecured funds-transfer-pricing (FTP) curve is SOFR plus a term spread ({{ftp_spreads}}). Secured repo rates sit between SOFR and FTP for good collateral and can exceed short-dated FTP for poor collateral; liquidity charges (section 3) are what make secured funding worth paying for.
+
+## 2. Product economics
+
+Revenue ({{revenue}}) and funding cost ({{funding_cost}}) are both large because they include the SOFR base on billions of cash lent and borrowed; the business is the difference, {{net_interest}} of net interest before charges. After balance-sheet and capital charges ({{charges}}), the liquidity charge ({{liq_charge}}) and expected counterparty cost ({{cp_cost}}), the optimised book earns **{{net_income}} a year on {{bs}} of balance sheet: {{robs}}**.
+
+- **Treasury financing** is the largest user of balance sheet and the thinnest earner. A 1-year Treasury reverse repo clears {{rr10_rev_less_fund}} a year over funding but costs {{rr10_bs}} in balance-sheet charge. Most of it is only worth doing because it nets against repo funding from the same client (see section 4).
+- **Credit and equity financing** (IG, HY, single names) earns 10-50bp on balance sheet: wider client spreads, haircuts above the street's, but higher liquidity, capital and concentration usage.
+- **Equity TRS** earn the client spread minus the cost of funding the hedge. Client cash initial margin funds part of the hedge at SOFR, the street funds most of the rest against the shares, and the street haircut gap is unsecured. Index TRS are thin (and below ~45bp lose money once the hedge stock's balance-sheet charge is counted); single names pay more.
+- **Interest-rate swaps** use little balance sheet but carry capital, FVA (uncollateralised clients), MVA (initial margin on the CCP hedge) and liquidity costs. A corporate payer at {{irs01_rev}} a year of sales spread keeps only {{irs01_ni}} after those costs. Long-dated LDI swaps at a few bp running often fail the return-on-RWA hurdle even when net income is positive.
+
+## 3. Optimizer
+
+{{alloc_table}}
+
+- **Naive (biggest revenue first)** fills large, low-margin Treasury and interdealer requests first. It uses all the allowed balance sheet and earns {{naive_ni}}, and {{naive_neg_count}} of the requests it fills lose money outright.
+- **Greedy by return on balance sheet** is a strong heuristic: {{greedy_ni}}. It fails in exactly one way: it evaluates each request alone.
+- **The LP** earns {{opt_ni}}: **+{{opt_vs_naive}} (+{{opt_vs_naive_pct}}) over naive and +{{opt_vs_greedy}} (+{{opt_vs_greedy_pct}}) over greedy**. The gain over greedy comes from requests that are unprofitable or marginal standalone but net on balance sheet with other trades: {{lp_only_list}}. The LP's netting variables price that complementarity directly.
+
+**Shadow prices** (marginal net income per unit of each binding limit):
+
+{{shadow_table}}
+
+The balance-sheet shadow price of {{shadow_bs}} a year is the right hurdle for an incremental trade at this book: a new trade that earns less than that per dollar of *incremental* balance sheet should be declined or re-priced, whatever its average-cost return looks like. The frontier figure shows the shadow price falling as the limit grows: average RoBS barely moves while the marginal return collapses, a classic sign that the last requests in the queue are the cheap ones.
+
+**Caveats.** Allocations are fill fractions of client requests; real desks negotiate size and price rather than filling 37% of an order. Limits use the sum of *standalone* EADs (conservative; netting-set EAD is lower, {{ead_netted}} vs {{ead_standalone}}), which keeps the problem linear. Netting is credited only for identical maturity dates with the same counterparty.
+
+## 4. Pre-trade gate
+
+{{gate_table}}
+
+Rejections fall into four families, which is roughly how a real desk thinks about them:
+
+1. **Not allowed:** collateral below the internal minimum haircut (P02), a trade that would breach a fund's leverage limit (P03), or exhaust repo inventory (P06).
+2. **Too big for the book:** the 2Y Treasury term trade (P05) breaches total and counterparty balance sheet, client leverage and DV01 at once, and returns 2bp on balance sheet anyway.
+3. **Not paid enough:** below-street pricing (P09), an 18bp index TRS (P11), interdealer Treasury lending (P12), and an uncollateralised 10Y corporate swap (P04) all lose money after charges.
+4. **Risk the desk should not warehouse:** an unhedged 30Y receiver (P10) adds far more DV01 than the limit allows.
+
+P14 is the instructive near-miss: positive net income and 12bp on balance sheet, but the return on the RWA it consumes is below hurdle. Gate decisions are evaluated independently against the same post-optimisation book; accepting several would consume shared headroom, so a production gate would re-evaluate sequentially.
+
+## 5. Stress
+
+{{stress_table}}
+
+- **Market risk is small by construction.** TRS are hedged with stock, client swaps with the CCP. SOFR +100bp costs {{st_sofr_mtm}}, almost all from fixed-rate term reverse repos (the desk lent at fixed rates for months and funds overnight) partly offset by a pay-fixed hedge. The book's DV01 is {{desk_dv01}} per bp; IRS alone are {{irs_dv01}}. Key-rate DV01s show the hedge is not tenor-matched:
+
+{{krd_table}}
+
+- **Credit dominates.** Any single default today costs at most {{worst_loss}} ({{worst_cp}}). That the worst single default is the *safest* counterparty is not a bug: with the money-market fund the desk is the cash borrower and has given away haircuts on billions of collateral; if the fund failed, the desk would have to replace those securities after a price move. In the combined scenario, collateral values have already fallen 15-20%, so a hedge fund's default leaves haircuts insufficient: {{st_combined_credit}}.
+
+{{default_table}}
+
+- **Liquidity is the binding stress.** Collateral -15% raises liquidity usage by {{st_coll_liq}} and doubled street haircuts by {{st_hc_liq}}, each against {{liq_cap}} of capacity with {{liq_usage}} already used. The haircut sweep shows the breach point:
+
+{{haircut_table}}
+
+The income cost of haircut stress is small; the liquidity cost is not. A desk that only watched P&L would miss the risk entirely.
+
+## 6. What would change with real data
+
+- Real SOFR, repo (tri-party / GCF / bilateral by collateral) and FTP curves, with holiday calendars and payment lags.
+- Haircuts and client spreads per security and per client agreement, not per class.
+- Full SA-CCR (hedging sets per currency, basis, volatility) and the full Basel comprehensive-approach SFT formula with per-security net exposures.
+- Simulation-based exposure (EPE/PFE) and CVA/FVA rather than closed-form proxies; stochastic rates for TRS financing legs.
+- Multi-period allocation (trades roll off; requests arrive over time) and integer constraints (minimum ticket sizes), which would make this a MILP.
+
+See [MODEL_ASSUMPTIONS.md](MODEL_ASSUMPTIONS.md) for every simplification.

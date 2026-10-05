@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fsbs"
+version = "1.0.0"
+description = "Repo, reverse repo, equity TRS and SOFR swap pricing, desk economics, balance-sheet optimisation, pre-trade gating and stress testing - from first principles, on a simulated book."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Case Ollila" }]
+dependencies = ["numpy>=1.26", "scipy>=1.11", "pandas>=2.1", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+crosscheck = ["QuantLib>=1.32"]
+
+[project.scripts]
+fsbs = "fsbs.pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E731", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/fsbs/book.py" = ["E501"]  # tabular trade definitions read better one per line
+"src/fsbs/config.py" = ["E501"]

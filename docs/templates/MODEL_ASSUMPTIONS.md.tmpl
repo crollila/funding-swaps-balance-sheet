@@ -1,0 +1,76 @@
+# Model assumptions
+
+Everything a reviewer should know before trusting a number from this repository. All parameter tables below are rendered from `src/fsbs/config.py`, so they always match the code.
+
+## Data provenance
+
+- **All market data is synthetic.** SOFR quotes, funding spreads, repo spreads, haircuts, volatilities, equity levels and dividends are illustrative values with realistic shape and magnitude. They are not observations and not any institution's parameters.
+- **The book is simulated.** Counterparties are fictional archetypes ("multi-strategy hedge fund A"); trades, client requests and proposals are generated in `src/fsbs/book.py` (requests with a fixed seed). No real client, deal or position is represented.
+
+## Conventions
+
+- Valuation date {{val_date}}; weekends-only calendar (no holidays); modified-following adjustment.
+- Money-market accrual ACT/360; curve time ACT/365F. Annual dollar figures multiply ACT/360 rates by 365/360.
+- Desk perspective throughout: positive value / P&L is good for the desk. `reverse` repo = desk lends cash; `repo` = desk borrows cash.
+
+## Curves
+
+- SOFR OIS quotes: {{sofr_quotes}}.
+- Spot-starting (no T+2 lag), no payment lag, annual fixed payments beyond one year, single period up to one year.
+- Single-curve: SOFR projects and discounts. Log-linear interpolation on discount factors (flat forwards), flat-forward extrapolation.
+- Unsecured FTP spread over SOFR by term: {{ftp_spreads}}; linear interpolation, flat beyond 10Y.
+- Secured repo rate = SOFR term rate + a spread per collateral class (below).
+
+## Collateral
+
+{{collateral_table}}
+
+- Street haircut: what lenders apply when the desk re-finances collateral. Minimum client haircut: the eligibility floor (requests below it are ineligible). Supervisory haircut: simplified comprehensive-approach haircut used for SFT exposure. Runoff weight: share of secured funding counted as liquidity usage (LCR-inspired, simplified).
+- Margin is assumed current at the valuation date (collateral value = required collateral) for book trades; the worked example simulates daily margining explicitly.
+
+## Counterparties
+
+{{cpty_table}}
+
+PDs, LGDs and risk weights are illustrative standardised-approach-style values. "Max leverage" bounds each fund's gross financed position as a multiple of its NAV.
+
+## Desk charges and limits
+
+{{charges_table}}
+
+{{limits_cfg_table}}
+
+## Instrument modelling
+
+- **Repo:** fixed rate, simple interest, haircut convention `cash = MV × (1 − h)`. Term repos are marked by discounting the repurchase price at today's term client rate for the collateral. Close-out: collateral sold after a 99% margin-period-of-risk move plus liquidation cost; unsecured shortfall recovers 40%.
+- **IRS:** fixed vs compounded SOFR, both ACT/360 annual. A period that has started uses a synthetic realised fixing to date. Client swaps are hedged at the CCP at mid (same schedule, or DV01-matched on a different tenor where stated). Revenue is a running sales spread over mid.
+- **TRS:** fixed share quantity, notional resets each period, dividends passed through at the next reset, client pays SOFR + spread. MTM uses deterministic rates and an equity forward financed at SOFR (no stock borrow cost or repo-SOFR basis). The desk hedges with stock funded by client IM (rebated at SOFR), street equity repo, then unsecured FTP.
+- **Funding:** reverse repos are funded by re-pledging the collateral at the street haircut and spread; any haircut gap is funded unsecured at FTP. Repos are valued at the desk's alternative secured funding cost (street rate) for that collateral.
+
+## Capital, exposure and liquidity
+
+- **Leverage exposure** = on-balance-sheet assets (reverse-repo receivables, TRS hedge stock) + counterparty add-ons (SFT exposure, derivative EAD). Same-counterparty, same-maturity repo / reverse repo receivables net when a netting agreement exists.
+- **SFT exposure** per netting set: `max(0, Σ loan − MV × (1 − H))` for cash lent and `max(0, Σ MV × (1 + H) − loan)` for cash borrowed, a simplification of the Basel comprehensive approach (no per-security net exposure term).
+- **Derivative EAD**: SA-CCR structure (alpha 1.4, replacement cost with VM/IM, interest-rate add-on with supervisory duration and maturity buckets, equity add-on with single-name/index factors and correlations, PFE multiplier), single currency, no basis or volatility hedging sets. IM posted to the CCP is treated as bankruptcy-remote.
+- **Limit usage** sums standalone EADs per counterparty (conservative, keeps the optimizer linear); netting-set EAD is reported separately and is always lower in the tests.
+- **RWA** = EAD × counterparty risk weight; market-risk capital on hedged positions is ignored.
+- **Expected counterparty cost** = PD × LGD × EAD over one year; no CVA term structure.
+- **IRS FVA/MVA proxies:** uncollateralised clients carry an EPE from a normal-rate approximation (85bp/yr vol, linearly amortising DV01) funded at the term FTP spread; CCP initial margin ≈ 99% 5-day move × DV01 funded at the 1Y spread.
+- **Liquidity usage** = unsecured funding + runoff weight × secured funding (×0.25 for trades of 30 days or less) + IM posted + stressed VM on hedges of uncollateralised swaps.
+
+## Stress
+
+- Rate and price shocks revalue positions (mark-to-market); spread, haircut and charge shocks re-run one year of economics on the base SOFR curve (1-year NII) so effects are not double counted.
+- Market-shock credit cost = stressed PD (5 × the base PD) × LGD × the increase in uncollateralised exposure before margin calls.
+- Default scenarios close out the defaulted counterparty's repo and derivative netting sets separately (no cross-product netting) and report the worst counterparty.
+- Standalone stress loss per trade (used by the optimizer budget and the gate) = combined scenario applied to that trade alone, including its own counterparty's default.
+
+## Optimizer and gate
+
+- Linear programme over fill fractions in [0, 1]; economics and resource usage are linear in size (SA-CCR multipliers are evaluated at full request size).
+- {{reserve}} of balance-sheet and liquidity capacity is reserved for flow; the gate checks against the full limits.
+- Gate proposals are evaluated independently against the same book, not sequentially.
+
+## Not modelled
+
+Intraday liquidity and settlement fails; rehypothecation limits by client agreement; wrong-way risk; collateral substitution; tri-party mechanics; tax and dividend withholding on TRS; accounting (amortised cost vs fair value); stochastic rates and equity vol in valuation; multi-currency; holidays.
